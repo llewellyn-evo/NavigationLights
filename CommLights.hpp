@@ -118,11 +118,12 @@ namespace Monitors
         }
         try{
           dac = new DUNE::Hardware::I2C(dev);
+          dac->connect(address);
           
         }catch(...){
             throw RestartNeeded("I2C Bus/device opening/connecting failure", 30);
         }
-        dac->connect(address);
+        
         try{
           buffer[0] = MAX5811_DAC_POWER_UP;
           dac->write((uint8_t*)buffer , 1);
@@ -138,7 +139,7 @@ namespace Monitors
         return 0;
        }
 
-      void SetFlashLight(uint8_t state , float  duty_cycle = 0.0 , int intensity = 0){
+      void SetFlashLight(uint8_t state , float  duty_cycle = 0.0 , uint16_t intensity = 0){
         //state needs to be 0 for off and 1 or above for on
         //intensity is between 0 to 100%
         uint8_t outbuf[2];
@@ -160,7 +161,13 @@ namespace Monitors
         outbuf[0] = MAX5811_LOAD_DAC_A_IN_REG_A;
         outbuf[0] |= intensity >> 6;
         outbuf[1] = (intensity & 0x3f) << 2;
-        dac->write(outbuf , 2);
+        try{
+           dac->write(outbuf , 2);
+           setFlashIntensity(intensity);
+        }catch(...){
+          std::cout << "Error in writting to i2c Device \r\n";
+        }
+
       }
 
       
