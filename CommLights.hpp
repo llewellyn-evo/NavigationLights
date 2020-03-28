@@ -9,7 +9,7 @@
 
 namespace Control
 {
-  namespace Navlight
+  namespace NavigationLights
   {
     using DUNE_NAMESPACES;
     class CommLights
@@ -18,146 +18,137 @@ namespace Control
       CommLights(Tasks::Task* task):
       m_task(task)
       {
-        m_counter.setTop(0.5);
+        m_nav_lights_flashing_timer.setTop(0.5);
       }
 
       ~CommLights()
       {
         m_nav_pwm->disable();
         m_flash_pwm->disable();
-        m_nav_pwm->~PWM();
-        m_flash_pwm->~PWM();
+        delete m_nav_pwm;
+        delete m_flash_pwm;
       }
 
       void
-      NavLightTimerCkeck()
+      updateNavTimer()
       {
         static uint8_t flashing_state = 0;
-        if(m_counter.overflow()){
-          if(m_identify){
-            switch(flashing_state){
+        if (m_nav_lights_flashing_timer.overflow())
+        {
+          if (m_is_being_identified)
+          {
+            switch (flashing_state){
               case 0:
               case 1:
               case 2:
               case 3:
               case 4:
               case 5:
-              SetNavState(!m_nav_state);
-              flashing_state++;
-              break;
+                setNavState(!m_nav_state);
+                flashing_state++;
+                break;
               case 6:
-              flashing_state = 0;
-              m_identify = 0;
+                flashing_state = 0;
+                m_is_being_identified = false;
               break;
             }
           }
-          m_counter.reset();
+          m_nav_lights_flashing_timer.reset();
         }
       }
 
       //! Function Used to Identify the vehicle
       //! Will blink the Navigation lights 3 times
       void
-      IdentifyVehicle()
+      identifyVehicle()
       {
-        m_identify = 1;
+        m_is_being_identified = true;
       }
 
       void
-      InitNavLight( std::string& nav_pwm_chip,  float nav_period , float nav_brightness , uint8_t state )
+      initNavLight(const std::string& nav_pwm_chip, const float nav_period, const float nav_brightness, const uint8_t state)
       {
         //Validate brightness and period
-        if(!nav_period && !nav_brightness)
+        if (!nav_period && !nav_brightness)
         {
           return;
         }
         m_nav_pwm =  new  DUNE::Hardware::PWM(0 , nav_pwm_chip);
-        m_nav_period = nav_period;
-        m_nav_brightness = nav_brightness;
-        m_nav_pwm->setPeriod(m_nav_period);
-        m_nav_pwm->setDutyCyclePercentage(m_nav_brightness);
-        m_nav_state = state;
-        if(m_nav_state){
-          m_nav_pwm->enable();
-        }else{
-          m_nav_pwm->disable();
-        }
+        setNavPeriod(nav_period);
+        setNavBrightness(nav_brightness);
+        setNavState(state);
       }
 
       void
-      SetNavBrightness( float nav_brightness )
+      setNavBrightness(const float nav_brightness)
       {
         //state needs to be 0 for off and 1 or above for on
         //Duty_cycle is between 0 to 100%
-        if(nav_brightness > 0 && nav_brightness < 101){
+        if (nav_brightness > 0 && nav_brightness < 101)
+        {
           m_nav_brightness = nav_brightness;
           m_nav_pwm->setDutyCyclePercentage(m_nav_brightness);
         }
       }
 
       void
-      SetNavState(uint8_t state)
+      setNavState(const uint8_t state)
       {
         m_nav_state = state;
-        if(m_nav_state){
+        if (m_nav_state)
+        {
           m_nav_pwm->enable();
-        }else{
+        }
+        else
+        {
           m_nav_pwm->disable();
         }
       }
 
       void
-      SetNavPeriod( float nav_period )
+      setNavPeriod(const float nav_period)
       {
         m_nav_period = nav_period;
         m_nav_pwm->setPeriod(m_nav_period);
       }
 
       void
-      InitFlashLight( std::string& i2c_dev , std::string& pwm_chip ,  uint8_t address , float period , float duty_cycle , uint16_t brightness , uint8_t state)
+      initFlashLight(const std::string& i2c_dev, const std::string& pwm_chip, const uint8_t address, const float period, const float duty_cycle, const uint16_t brightness, const uint8_t state) 
       {
-        uint8_t command[2];
-        if(!period && !duty_cycle){
+        if (!period && !duty_cycle)
+        {
           return;
         }
-        m_flash_period = period;
-        m_flash_brightness = brightness;
-        m_flash_duty_cycle = duty_cycle;
-
-        try{
+        m_flash_pwm =  new  DUNE::Hardware::PWM(0 , pwm_chip);
+        setFlashPeriod(period);
+        setFlashDutyCycle(duty_cycle);
+        try
+        {
           m_dac = new DUNE::Hardware::I2C(i2c_dev);
           m_dac->connect(address);
-        }catch(...){
+        }
+        catch (...)
+        {
           throw RestartNeeded("I2C Bus/device opening/connecting failure", 30);
         }
 
-        try{
-          command[0] = MAX5811_DAC_POWER_UP;
-          m_dac->write(command , 1);
-          command[0] = MAX5811_LOAD_DAC_A_IN_REG_A;
-          command[0] |= brightness >> 6;
-          command[1] = (brightness & 0x3f) << 2;
-          m_dac->write(command , 2);
-        }catch(...){
+        try
+        {
+          uint8_t command = MAX5811_DAC_POWER_UP;
+          m_dac->write(&command , 1);
+          setFlashBrightness(brightness);
+        }
+        catch (...)
+        {
           m_task->err("Error in writting to i2c Device \r\n");
         }
-
-        m_flash_pwm =  new  DUNE::Hardware::PWM(0 , pwm_chip);
-        m_flash_pwm->setPeriod(m_flash_period);
-        m_flash_pwm->setDutyCyclePercentage(m_flash_duty_cycle);
-
-        m_flash_state = state;
-        if(m_flash_state){
-          m_flash_pwm->enable();
-        }else{
-          m_flash_pwm->disable();
-        }
+        setFlashState(state);
       }
 
       void
-      SetFlashDutyCycle(float  duty_cycle)
+      setFlashDutyCycle(const float  duty_cycle)
       {
-        if(duty_cycle > 0 && duty_cycle < 101)
+        if (duty_cycle > 0 && duty_cycle < 101)
         {
           m_flash_duty_cycle = duty_cycle;
           m_flash_pwm->setDutyCyclePercentage(m_flash_duty_cycle);
@@ -165,63 +156,67 @@ namespace Control
       }
 
       void
-      SetFlashPeriod(float period)
+      setFlashPeriod(const float period)
       {
          m_flash_period = period;
          m_flash_pwm->setPeriod(m_flash_period);
       }
 
       void
-      SetFlashState(uint8_t state)
+      setFlashState(const uint8_t state)
       {
         m_flash_state = state;
-        if(m_flash_state){
+        if (m_flash_state)
+        {
           m_flash_pwm->enable();
-        }else{
+        }
+        else
+        {
           m_flash_pwm->disable();
         }
       }
 
       void
-      SetFlashBrightness(uint16_t brightness)
+      setFlashBrightness(const uint16_t brightness)
       {
         uint8_t command[2];
-        if(brightness > 0 && brightness < 1024)
+        if (brightness > 0 && brightness < 1024)
         {
           m_flash_brightness = brightness;
           command[0] = MAX5811_LOAD_DAC_A_IN_REG_A;
           command[0] |= m_flash_brightness >> 6;
           command[1] = (m_flash_brightness & 0x3f) << 2;
 
-          try{
+          try
+          {
             m_dac->write(command , 2);
-          }catch(...){
+          }
+          catch (...)
+          {
             m_task->err("Error in writting to i2c Device \r\n");
           }
         }
       }
-
-      //! Pointer to PWM for Navigation Light
+      //! PWM for Navigation Light
       DUNE::Hardware::PWM* m_nav_pwm;
-      //! Pointer to PWM for Flash Light
+      //! PWM for Flash Light
       DUNE::Hardware::PWM* m_flash_pwm;
-      //! Pointer to DAC for Flash Brightness
+      //! DAC for Flash Brightness
       DUNE::Hardware::I2C* m_dac;
-      //! Pointer to Counter
-      DUNE::Time::Counter<float> m_counter;
-      //! Pointer to task
+      //! Counter for flashing of Navigation lights for Identifying vehicle
+      DUNE::Time::Counter<float> m_nav_lights_flashing_timer;
+      //! Task
       Tasks::Task* m_task;
-      //! Defines for Navigation Light
+      //! Variables for Navigation Light
       uint8_t m_nav_state;
       float m_nav_period , m_nav_brightness;
-      //! Definations for Flash light
+      //! Variables for Flash light
       uint8_t m_flash_state;
       uint16_t m_flash_brightness;
       float m_flash_period , m_flash_duty_cycle;
-      //! Flash to identify vehicle
-      uint8_t m_identify;
+      //! Variable to identify vehicle
+      bool m_is_being_identified;
     };
   }
 }
-
 #endif

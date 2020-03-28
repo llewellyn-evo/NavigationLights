@@ -32,7 +32,7 @@
 
 namespace Control
 {
-  namespace Navlight
+  namespace NavigationLights
   {
     using DUNE_NAMESPACES;
 
@@ -47,7 +47,7 @@ namespace Control
       //! Flash light Duty Cycle 0 to 100%
       float flash_duty_cycle;
       //! Navigation light PWM chip
-      std::string nav_pwm_chip;
+      uint8_t nav_pwm_chip;
       //! Name of Navigation LED channel
       std::string nav_id;
       //! Flash light PWM period
@@ -57,14 +57,13 @@ namespace Control
       //! Flash Light Default State
       uint8_t flash_default_state;
       //! Flash light PWM chip
-      std::string flash_pwm_chip;
+      uint8_t flash_pwm_chip;
       //! Name of Flash LED channel
       std::string flash_id;
       //! i2c bus for Digital to Analog Convertor
       std::string i2c_bus;
-      //! i2C address of Digital to Analog Convertor.
+      //! i2c address of Digital to Analog Convertor.
       uint8_t i2c_addr;
-
     };
 
     struct Task: public DUNE::Tasks::Task
@@ -74,8 +73,6 @@ namespace Control
       //! @param[in] ctx context.
       Arguments m_args;
       CommLights* m_lights;
-
-      IMC::LedBrightness m_led_brightness;
 
 
       Task(const std::string& name, Tasks::Context& ctx):
@@ -139,12 +136,12 @@ namespace Control
         .description("Address of DAC");
 
         param("Nav-Light PWMChip", m_args.nav_pwm_chip)
-        .defaultValue("/sys/class/pwm/pwmchip0/")
-        .description("Chip file path for Navigation light PWM");
+        .defaultValue("0")
+        .description("PWM chip number for navigation light");
 
         param("Flash-Light PWMChip", m_args.flash_pwm_chip)
-        .defaultValue("/sys/class/pwm/pwmchip1/")
-        .description("Chip file path for Flash light PWM");
+        .defaultValue("1")
+        .description("PWM chip number for flash light");
 
         bind<IMC::QueryLedBrightness>(this);
         bind<IMC::SetLedBrightness>(this);
@@ -153,37 +150,36 @@ namespace Control
         bind<IMC::SetPWM>(this);
 
       }
-
       //! Update internal state with new parameter values.
       void
       onUpdateParameters(void)
       {
-        if(m_lights)
+        if (m_lights)
         {
-          if (paramChanged(m_args.i2c_bus) || paramChanged(m_args.i2c_addr) || paramChanged(m_args.nav_pwm_chip) || paramChanged(m_args.flash_pwm_chip) )
+          if (paramChanged(m_args.i2c_bus) || paramChanged(m_args.i2c_addr) || paramChanged(m_args.nav_pwm_chip) || paramChanged(m_args.flash_pwm_chip))
             throw RestartNeeded(DTR("restarting to change parameters"), 1);
 
           if (paramChanged(m_args.nav_brightness))
-            m_lights->SetNavBrightness(m_args.nav_brightness);
+            m_lights->setNavBrightness(m_args.nav_brightness);
 
-          if (paramChanged( m_args.nav_period))
-            m_lights->SetNavPeriod( m_args.nav_period );
+          if (paramChanged(m_args.nav_period))
+            m_lights->setNavPeriod(m_args.nav_period);
 
-          if (paramChanged( m_args.nav_default_state))
-            m_lights->SetNavState( m_args.nav_default_state );
+          if (paramChanged(m_args.nav_default_state))
+            m_lights->setNavState( m_args.nav_default_state );
 
 
-          if (paramChanged( m_args.flash_period))
-            m_lights->SetFlashPeriod( m_args.flash_period );
+          if (paramChanged(m_args.flash_period))
+            m_lights->setFlashPeriod( m_args.flash_period );
 
-          if (paramChanged( m_args.flash_duty_cycle))
-            m_lights->SetFlashDutyCycle( m_args.flash_duty_cycle );
+          if (paramChanged(m_args.flash_duty_cycle))
+            m_lights->setFlashDutyCycle( m_args.flash_duty_cycle );
 
-          if (paramChanged( m_args.flash_brightness))
-            m_lights->SetFlashBrightness( m_args.flash_brightness );
+          if (paramChanged(m_args.flash_brightness))
+            m_lights->setFlashBrightness( m_args.flash_brightness );
 
-          if (paramChanged( m_args.flash_default_state))
-            m_lights->SetFlashState( m_args.flash_default_state );
+          if (paramChanged(m_args.flash_default_state))
+            m_lights->setFlashState( m_args.flash_default_state );
         }
       }
 
@@ -191,47 +187,40 @@ namespace Control
       void
       onResourceAcquisition(void)
       {
-
         m_lights = new CommLights(this);
-
       }
 
       //! Initialize resources.
       void
       onResourceInitialization(void)
       {
-        m_lights->InitNavLight( m_args.nav_pwm_chip , m_args.nav_period , m_args.nav_brightness , m_args.nav_default_state  );
-        m_lights->InitFlashLight( m_args.i2c_bus , m_args.flash_pwm_chip  , m_args.i2c_addr , m_args.flash_period , m_args.flash_duty_cycle , m_args.flash_brightness , m_args.flash_default_state );
-        setEntityState(IMC::EntityState::ESTA_NORMAL, Status::CODE_IDLE);
-
+        m_lights->initNavLight("/sys/class/pwm/pwmchip" + std::to_string(m_args.nav_pwm_chip) + "/", m_args.nav_period , m_args.nav_brightness , m_args.nav_default_state  );
+        m_lights->initFlashLight(m_args.i2c_bus , "/sys/class/pwm/pwmchip" + std::to_string(m_args.flash_pwm_chip) + "/"  , m_args.i2c_addr , m_args.flash_period , m_args.flash_duty_cycle , m_args.flash_brightness , m_args.flash_default_state );
       }
 
       //! Release resources.
       void
       onResourceRelease(void)
       {
-        if(m_lights)
-        {
-          m_lights->~CommLights();
-        }
+        Memory::clear(m_lights);
       }
 
       //! Querry LED brightness
       void
       consume(const IMC::QueryLedBrightness* msg)
       {
-        IMC::LedBrightness* brightness_state = new LedBrightness();
+        IMC::LedBrightness brightness_state;
         if (msg->getDestination() != getSystemId())
           return;
-        if(!m_args.nav_id.compare(msg->name))
+        if (!m_args.nav_id.compare(msg->name))
         {
-          brightness_state->name = msg->name;
-          brightness_state->value = (uint8_t)m_lights->m_nav_brightness;
+          brightness_state.name = msg->name;
+          brightness_state.value = (uint8_t)m_lights->m_nav_brightness;
         }
-         else if(!m_args.flash_id.compare(msg->name))
+         else if (!m_args.flash_id.compare(msg->name))
         {
-          brightness_state->name = msg->name;
-          brightness_state->value = (uint8_t)m_lights->m_flash_brightness;
+          brightness_state.name = msg->name;
+          brightness_state.value = (uint8_t)m_lights->m_flash_brightness;
         }
         else
         {
@@ -247,14 +236,14 @@ namespace Control
         if (msg->getDestination() != getSystemId())
           return;
 
-        if(!m_args.nav_id.compare(msg->name))
+        if (m_args.nav_id == msg->name)
         {
-          m_lights->SetNavBrightness((float) msg->value);
+          m_lights->setNavBrightness((float) msg->value);
         }
-        else if(!m_args.flash_id.compare(msg->name))
+        else if (m_args.flash_id == msg->name)
         {
           //! Change 0 to 100 % to 0 to 1023
-          m_lights->SetFlashBrightness((uint16_t) msg->value * 10.23 );
+          m_lights->setFlashBrightness((uint16_t) msg->value * 10.23 );
         }
       }
 
@@ -262,27 +251,30 @@ namespace Control
       void
       consume(const IMC::QueryPowerChannelState* msg)
       {
-        IMC::PowerChannelState* nav_chan_state = new PowerChannelState();
-
+        IMC::PowerChannelState nav_chan_state;
         if (msg->getDestination() != getSystemId())
           return;
-        nav_chan_state->name = m_args.nav_id;
-        if(m_lights->m_nav_state)
-          nav_chan_state->state =  IMC::PowerChannelState::PCS_ON;
+        nav_chan_state.name = m_args.nav_id;
+        if (m_lights->m_nav_state)
+        {
+          nav_chan_state.state =  IMC::PowerChannelState::PCS_ON;
+        }
         else
-          nav_chan_state->state =  IMC::PowerChannelState::PCS_OFF;
-
+        {
+          nav_chan_state.state =  IMC::PowerChannelState::PCS_OFF;
+        }
         dispatch(nav_chan_state);
-
-        IMC::PowerChannelState* flash_chan_state = new PowerChannelState();
-
-        flash_chan_state->name = m_args.flash_id;
-        if(m_lights->m_flash_state)
-          flash_chan_state->state =  IMC::PowerChannelState::PCS_ON;
+        IMC::PowerChannelState flash_chan_state;
+        flash_chan_state.name = m_args.flash_id;
+        if (m_lights->m_flash_state)
+        {
+          flash_chan_state.state =  IMC::PowerChannelState::PCS_ON;
+        }
         else
-          flash_chan_state->state =  IMC::PowerChannelState::PCS_OFF;
-
-        dispatch(nav_chan_state);
+        {
+          flash_chan_state.state =  IMC::PowerChannelState::PCS_OFF;
+        }
+        dispatch(flash_chan_state);
       }
 
       //! Set Power channel state
@@ -292,21 +284,28 @@ namespace Control
         if (msg->getDestination() != getSystemId())
           return;
 
-        if(!m_args.nav_id.compare(msg->name))
+        if (!m_args.nav_id.compare(msg->name))
         {
-          if(msg->op == IMC::PowerChannelControl::PCC_OP_TURN_OFF)
-            m_lights->SetNavState(0);
-          else if(msg->op == IMC::PowerChannelControl::PCC_OP_TURN_ON)
-            m_lights->SetNavState(1);
+          if (msg->op == IMC::PowerChannelControl::PCC_OP_TURN_OFF)
+          {
+            m_lights->setNavState(0);
+          }
+          else if (msg->op == IMC::PowerChannelControl::PCC_OP_TURN_ON)
+          {
+            m_lights->setNavState(1);
+          }
         }
-        else if(!m_args.flash_id.compare(msg->name))
+        else if (!m_args.flash_id.compare(msg->name))
         {
-          if(msg->op == IMC::PowerChannelControl::PCC_OP_TURN_OFF)
-            m_lights->SetFlashState(0);
-          else if(msg->op == IMC::PowerChannelControl::PCC_OP_TURN_ON)
-            m_lights->SetFlashState(1);
+          if (msg->op == IMC::PowerChannelControl::PCC_OP_TURN_OFF)
+          {
+            m_lights->setFlashState(0);
+          }
+          else if (msg->op == IMC::PowerChannelControl::PCC_OP_TURN_ON)
+          {
+            m_lights->setFlashState(1);
+          }
         }
-
       }
 
       //! Set PWM
@@ -314,20 +313,16 @@ namespace Control
       consume(const IMC::SetPWM* msg)
       {
         if (msg->getDestination() != getSystemId())
-          return;
-        std::vector<std::string> tokens;
-        std::istringstream ss(m_args.flash_pwm_chip);
-        std::string token;
-        while(std::getline(ss, token, '/'))
         {
-            tokens.push_back(token);
+          return;
         }
-        if(!tokens[4].compare("pwmchip"+std::to_string(msg->id)))
+
+        if (msg->id == m_args.flash_pwm_chip)
         {
           //! Convert to Seconds
-          m_lights->SetFlashPeriod((float)msg->period/1000000);
+          m_lights->setFlashPeriod((float)msg->period/1000000);
           //! Convert to Percentage
-          m_lights->SetFlashDutyCycle((float) (msg->duty_cycle/msg->period) * 100);
+          m_lights->setFlashDutyCycle((float) (msg->duty_cycle/msg->period) * 100);
         }
       }
 
@@ -337,8 +332,8 @@ namespace Control
       {
         while (!stopping())
         {
-          m_lights->NavLightTimerCkeck();
-          waitForMessages(0.3);
+          m_lights->updateNavTimer();
+          waitForMessages(0.05);
         }
       }
     };
