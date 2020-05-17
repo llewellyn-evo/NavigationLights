@@ -43,7 +43,7 @@ namespace Control
       //! Navigation light PWM Period
       float  nav_period;
       //! Navigation Light default state
-      uint8_t nav_default_state;
+      bool nav_default_state;
       //! Flash light Duty Cycle 0 to 100%
       float flash_duty_cycle;
       //! Navigation light PWM chip
@@ -55,7 +55,7 @@ namespace Control
       //! Flash light Intensity
       uint16_t flash_brightness;
       //! Flash Light Default State
-      uint8_t flash_default_state;
+      bool flash_default_state;
       //! Flash light PWM chip
       uint8_t flash_pwm_chip;
       //! Name of Flash LED channel
@@ -76,8 +76,8 @@ namespace Control
 
 
       Task(const std::string& name, Tasks::Context& ctx):
-      DUNE::Tasks::Task(name, ctx),
-      m_lights(NULL)
+        DUNE::Tasks::Task(name, ctx),
+        m_lights(NULL)
       {
         param("Nav-Light Brightness", m_args.nav_brightness)
         .defaultValue("50.0")
